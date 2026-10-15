@@ -1,21 +1,20 @@
 # Evercanon phased implementation plan
 
-Build one phase at a time. Do not begin the next phase until the current validation gate passes. Keep one deployable app and one PostgreSQL database until measured requirements justify more. Run the app and the database as separate Docker containers coordinated by Docker Compose, rather than bundling them into a single image.
+Build one phase at a time. Do not begin the next phase until the current validation gate passes. Keep one deployable app and one PostgreSQL database until measured requirements justify more.
 
 ## Phase 0 — repository reconnaissance and contract
 
-**Goal:** understand the existing repository and produce a reproducible, containerized development setup.
+**Goal:** understand the existing repository and produce a reproducible development setup.
 
 Tasks:
 - Inspect framework, package manager, existing tests, deployment files, and conventions before changing architecture.
-- If empty, scaffold Next.js App Router + TypeScript, PostgreSQL, Prisma, Tailwind, Vitest, and Playwright.
-- Run the **Next.js app and PostgreSQL as two separate Docker containers coordinated by one `docker-compose.yml`**: a `postgres` service and an `app` service built from the repo `Dockerfile`. The app must reach the database by Compose service name (`postgres`), not `localhost`, and must wait for the database healthcheck before starting.
-- Add project docs and implementation contract; document commands for install, dev, lint, typecheck, test, migration, seed, build, and `docker compose up`.
-- Add `.env.example` covering both services; keep secrets out of images and version control.
-- Record architectural choices (including the two-container topology) in `docs/decisions.md`.
+- If empty, scaffold Next.js App Router + TypeScript, PostgreSQL, Drizzle ORM, reviewed SQL migrations, Tailwind, Vitest, and Playwright. Do not add Prisma.
+- Add project docs and implementation contract; document commands for install, dev, lint, typecheck, test, migration, seed, build.
+- Add `.env.example`, a production-minded multi-stage app `Dockerfile`, and Docker Compose services for both `app` and `postgres`. Persist PostgreSQL data in a named volume, add a PostgreSQL health check, and make the app wait for a healthy database. Keep PostgreSQL unexposed publicly in production.
+- Record architectural choices in `docs/decisions.md`.
 - Explain that cookie-based voting is pseudonymous and not Sybil-proof.
 
-**Gate:** a clean checkout can install dependencies, build the app image, start the `app` and `postgres` containers together with `docker compose up`, run migrations/seed against the containerized database, and pass its setup checks. No timeline editing or voting yet.
+**Gate:** from a clean checkout, `docker compose up --build` starts both app and PostgreSQL, the app health check passes, SQL migrations/seed can run repeatably, and unit tests plus typecheck/lint/build work. No timeline editing or voting yet.
 
 ## Phase 1 — PostgreSQL seed and read-only renderer
 
@@ -98,7 +97,6 @@ Tasks:
 Tasks:
 - Complete loading, empty, error, and not-found states; responsive layout and accessibility.
 - Add structured logs, request IDs, health checks, and error reporting without logging visitor secrets.
-- Deploy the app and PostgreSQL as separate containers coordinated by Docker Compose on the single host; the production image must not depend on a bind-mounted source tree.
 - Add HTTPS/reverse proxy, environment secrets, database migration/runbook, automated off-site backups, retention, and restore tests.
 - Add end-to-end smoke tests against a production-like deployment.
 - Run a baseline load test covering a deep timeline, hot branch, and concurrent votes. Record environment, data size, p50/p95 latency, errors, and DB load.
@@ -117,30 +115,6 @@ Tasks, only where measurements warrant them:
 - Define cache invalidation/version rules and a rebuild command; keep authoritative history in PostgreSQL.
 
 **Gate:** before/after benchmark demonstrates a measurable improvement; correctness tests compare cached/projected results with authoritative data; projected/cached data is rebuildable; deployment/restore docs are updated.
-
-## Testing strategy
-
-Tests described in Markdown do not protect the application until the agent implements and runs them. Every phase must add and run the tests relevant to the behavior it introduces.
-
-| Test layer | What we verify |
-| --- | --- |
-| Unit tests — Vitest | Timeline rendering, branch ranking, deterministic tie-breaking, Unicode text editing |
-| Integration tests — PostgreSQL | Migrations, branching, immutable history, votes, transactions and concurrent submissions |
-| End-to-end tests — Playwright | Read the story, edit a phrase, vote, hover to explore alternatives, open a shared timeline |
-| Security tests | Duplicate votes, invalid edits, stale selections, input validation, and anonymous visitors sharing an IP |
-| Backup and recovery tests | Restore PostgreSQL into a separate database and verify that stories, branches and votes survive |
-| Load tests | Deep timelines, heavily contested branches and concurrent voting |
-
-## How the coding agent should work
-
-Every phase must follow this cycle:
-
-1. Implement one phase.
-2. Write the relevant tests.
-3. Run the tests and inspect failures.
-4. Run lint, type checking and the production build where applicable.
-5. Fix failures before proceeding.
-6. Report the actual results and stop at the phase's acceptance gate.
 
 ## Definition of done for every phase
 

@@ -18,30 +18,22 @@ Evercanon is a public collaborative story. Every accepted contribution creates a
 
 - Next.js App Router + TypeScript
 - PostgreSQL as the authoritative data store
-- Prisma ORM with explicit SQL migrations for advanced indexes, triggers, checks, and views that Prisma may not fully represent
+- Drizzle ORM for typed TypeScript database access, with reviewed SQL migrations as the authoritative schema-change history
 - Tailwind CSS
 - Vitest for unit/integration tests and Playwright for end-to-end tests
-- Docker Compose to run the Next.js app and PostgreSQL as two separate containers, both locally and on the first single-server deployment
+- Docker Compose for local PostgreSQL and a simple single-server first deployment
 
 If a repository already exists, inspect it first and follow its established conventions unless a concrete reason to change them is documented. Do not replace a working stack just because this document suggests another one.
 
-## Local environment (app + PostgreSQL)
+## Local PostgreSQL
 
-`docker-compose.yml` defines two coordinated services: `app` (the Next.js application, built from the repo `Dockerfile`) and `postgres` (the database). The app connects to the database by Compose service name (`postgres`), not `localhost`.
-
-Copy `.env.example` to `.env`, then start both containers:
-
-```bash
-docker compose up --build
-```
-
-To run only the database while developing the app on the host, start just that service:
+The project pack starts with a PostgreSQL service in `docker-compose.yml` because the Next.js application has not been scaffolded yet. **Phase 0 must add the app `Dockerfile` and an `app` service to the same Compose file**, so both the application and PostgreSQL run in containers before feature work begins. Copy `.env.example` to `.env`, then start the database for initial setup:
 
 ```bash
 docker compose up -d postgres
 ```
 
-Use the framework/ORM commands the agent documents in Phase 0 to apply migrations and seed the opening sentence. Never commit `.env` or credentials.
+In Phase 0, the agent must document commands to start the whole stack, apply SQL migrations, seed the opening sentence, and run tests inside the reproducible Docker environment. Never commit `.env` or credentials.
 
 ## Seed sentence
 
@@ -62,9 +54,13 @@ Seed it through a repeatable database seed command. Do not hardcode it into the 
 - Cache data and score projections are derived and rebuildable. PostgreSQL source records remain authoritative.
 - Keep backup copies separate from the VPS and test restoring them.
 
+## Database tooling policy
+
+Use **Drizzle ORM** for typed database access in TypeScript and **versioned, reviewed SQL migration files** for schema changes. PostgreSQL is the authority for data integrity; do not weaken constraints to fit an ORM abstraction. The committed SQL migration history is the canonical path for schema evolution. Keep Drizzle table/type definitions aligned with the resulting database. Use Drizzle for composite foreign keys and partial indexes where the definitions stay clear; use explicit SQL migrations for the score view, extensions, or any constraint the tooling cannot represent exactly. Do not use `prisma`, `prisma migrate`, or `drizzle-kit push` against production. See `DATABASE_TOOLING.md`.
+
 ## Keep the first deployment simple
 
-Start with one application and one PostgreSQL database, each running in its own container under Docker Compose, plus HTTPS, rate limits, and automated off-site backups. Do not add Redis, a queue, microservices, or read replicas before the application has measurements showing they are needed.
+Start with one application, one PostgreSQL database, Docker Compose, HTTPS, rate limits, and automated off-site backups. Do not add Redis, a queue, microservices, or read replicas before the application has measurements showing they are needed.
 
 The data model anticipates two optimizations without requiring them on day one:
 
@@ -79,9 +75,10 @@ Use the direct-score SQL view first. Promote snapshots/projections to active fea
 - `DATA_MODEL.md` — entities, branch semantics, rendering, scoring, snapshot and cache strategy.
 - `PROJECT_PLAN.md` — phases and acceptance gates.
 - `AGENT_PROMPTS.md` — copy/paste prompts for a coding agent.
-- `schema.sql` — PostgreSQL reference schema, including optional scale projections.
+- `schema.sql` — PostgreSQL reference schema, including optional scale projections. Use it as the database contract when authoring versioned SQL migrations.
 - `EVERCANON_PROJECT_BRIEF.md` — short standalone agent brief.
-- `docker-compose.yml` and `.env.example` — coordinated app + PostgreSQL containers for local development and single-server deployment.
+- `DATABASE_TOOLING.md` — Drizzle/SQL migration policy and schema invariants.
+- `docker-compose.yml` and `.env.example` — PostgreSQL bootstrap; Phase 0 must add the containerized app service and Dockerfile.
 - `scripts/backup-postgres.sh` — local backup helper; off-site upload must be configured separately.
 
 ## Definition of done

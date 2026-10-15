@@ -13,7 +13,7 @@ Build a public collaborative story. Each accepted contribution creates a new tim
 
 ## Stack
 
-Next.js App Router + TypeScript, PostgreSQL, Prisma with explicit SQL migrations for special constraints/indexes/views, Tailwind, Vitest, Playwright. Run the app and PostgreSQL as two separate Docker containers coordinated by Docker Compose (the app reaches the database by service name). Inspect an existing repo before changing its stack. One app and one DB first; no Redis/queues/microservices until measurements justify them.
+Next.js App Router + TypeScript, PostgreSQL, Drizzle ORM for typed queries, reviewed SQL migrations as the schema-change source of truth, Tailwind, Vitest, Playwright. Inspect an existing repo before changing its stack. Dockerize both the app and PostgreSQL with Docker Compose. One app and one DB first; no Redis/queues/microservices until measurements justify them.
 
 ## Data model
 

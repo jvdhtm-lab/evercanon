@@ -1,0 +1,17 @@
+.git
+.gitignore
+.github
+node_modules
+.next
+out
+build
+coverage
+test-results
+playwright-report
+blob-report
+backups
+docs
+*.md
+.env
+.env*.local
+npm-debug.log*
