@@ -23,3 +23,9 @@ export class TimelineNotFoundError extends DomainError {
     );
   }
 }
+
+export class ValidationError extends DomainError {
+  constructor(code: string, message: string) {
+    super(code, message);
+  }
+}

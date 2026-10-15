@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { Connection } from "@/db/factory";
-import { stories, storyUnits, timelines } from "@/db/schema";
 import { SEED_SENTENCE } from "@/db/seed";
 import { TimelineNotFoundError } from "@/domain/errors";
 import { renderToPlainText } from "@/domain/render";
@@ -12,36 +11,10 @@ import {
 } from "@/services/timeline";
 
 import { createTestDatabase, migrateAndSeed } from "./helpers/db";
+import { createStoryWithUnits } from "./helpers/fixtures";
 
 let conn: Connection;
 let db: Connection["db"];
-
-async function createStoryWithUnits(
-  slug: string,
-  title: string,
-  sentences: string[],
-) {
-  const [story] = await db
-    .insert(stories)
-    .values({ slug, title })
-    .returning();
-  const units = await db
-    .insert(storyUnits)
-    .values(
-      sentences.map((text, index) => ({
-        storyId: story.id,
-        position: index,
-        unitType: "sentence",
-        initialText: text,
-      })),
-    )
-    .returning();
-  const [root] = await db
-    .insert(timelines)
-    .values({ storyId: story.id, label: "seed" })
-    .returning();
-  return { story, units, root };
-}
 
 beforeAll(async () => {
   await migrateAndSeed();
@@ -67,6 +40,7 @@ describe("renderTimeline", () => {
 
   it("returns units in stable position order", async () => {
     const { story, root } = await createStoryWithUnits(
+      db,
       "ordering",
       "Ordering",
       ["First.", "Second.", "Third."],
@@ -98,6 +72,7 @@ describe("renderTimeline", () => {
   it("rejects a timeline id belonging to another story", async () => {
     const main = await getStoryBySlug(db, "the-beginning");
     const { root } = await createStoryWithUnits(
+      db,
       "other-story",
       "Other",
       ["Another beginning."],

@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 
 import { StoryLayout } from "@/components/StoryLayout";
-import { StoryText } from "@/components/StoryText";
+import { TimelineView } from "@/components/TimelineView";
 import { getDb } from "@/db/client";
 import {
+  getChildTimelines,
   getRootTimelineId,
   getStoryBySlug,
+  getTimelineSummaries,
   renderTimeline,
 } from "@/services/timeline";
 
@@ -22,19 +24,28 @@ export default async function StoryPage({
   const story = await getStoryBySlug(db, slug);
   if (!story) notFound();
 
-  // No branches exist yet, so the root timeline is the default reading path.
-  // Phase 4 replaces this with the preferred-path resolver.
+  // No preferred-path resolver yet; the root timeline is the default. Phase 4
+  // replaces this with the rank-based walk from the root.
   const rootTimelineId = await getRootTimelineId(db, story.id);
   if (!rootTimelineId) notFound();
 
   const rendered = await renderTimeline(db, story.id, rootTimelineId);
+  const [branches, history] = await Promise.all([
+    getChildTimelines(db, story.id, rootTimelineId),
+    getTimelineSummaries(db, story.id, rendered.pathTimelineIds),
+  ]);
 
   return (
     <StoryLayout
       timelineId={rendered.timelineId}
-      footer={<p>Seed version. Every accepted change will create a new timeline.</p>}
+      footer={<p>Seed version. Every accepted change creates a new timeline.</p>}
     >
-      <StoryText rendered={rendered} />
+      <TimelineView
+        slug={slug}
+        rendered={rendered}
+        branches={branches}
+        history={history}
+      />
     </StoryLayout>
   );
 }

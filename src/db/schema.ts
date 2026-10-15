@@ -78,3 +78,42 @@ export const timelines = pgTable(
     index("timelines_story_created_idx").on(t.storyId, t.createdAt),
   ],
 );
+
+export const timelineEdits = pgTable(
+  "timeline_edits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "restrict" }),
+    timelineId: uuid("timeline_id").notNull().unique(),
+    targetUnitId: uuid("target_unit_id").notNull(),
+    scopeType: text("scope_type").notNull(),
+    operation: text("operation").notNull(),
+    startOffset: integer("start_offset"),
+    endOffset: integer("end_offset"),
+    selectedText: text("selected_text").notNull().default(""),
+    replacementText: text("replacement_text").notNull().default(""),
+    parentTextHash: text("parent_text_hash").notNull(),
+    requestKey: text("request_key"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.timelineId, t.storyId],
+      foreignColumns: [timelines.id, timelines.storyId],
+      name: "timeline_edits_timeline_story_fk",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [t.targetUnitId, t.storyId],
+      foreignColumns: [storyUnits.id, storyUnits.storyId],
+      name: "timeline_edits_target_unit_story_fk",
+    }).onDelete("restrict"),
+    index("timeline_edits_target_idx").on(t.targetUnitId),
+    uniqueIndex("timeline_edits_request_key_key")
+      .on(t.storyId, t.requestKey)
+      .where(sql`${t.requestKey} is not null`),
+  ],
+);

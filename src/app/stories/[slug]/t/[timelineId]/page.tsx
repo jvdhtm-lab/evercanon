@@ -2,10 +2,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { StoryLayout } from "@/components/StoryLayout";
-import { StoryText } from "@/components/StoryText";
+import { TimelineView } from "@/components/TimelineView";
 import { getDb } from "@/db/client";
 import { TimelineNotFoundError } from "@/domain/errors";
-import { getStoryBySlug, renderTimeline } from "@/services/timeline";
+import {
+  getChildTimelines,
+  getStoryBySlug,
+  getTimelineSummaries,
+  renderTimeline,
+} from "@/services/timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +33,11 @@ export default async function TimelinePage({
     throw error;
   }
 
+  const [branches, history] = await Promise.all([
+    getChildTimelines(db, story.id, timelineId),
+    getTimelineSummaries(db, story.id, rendered.pathTimelineIds),
+  ]);
+
   return (
     <StoryLayout
       timelineId={rendered.timelineId}
@@ -42,7 +52,12 @@ export default async function TimelinePage({
         </p>
       }
     >
-      <StoryText rendered={rendered} />
+      <TimelineView
+        slug={slug}
+        rendered={rendered}
+        branches={branches}
+        history={history}
+      />
     </StoryLayout>
   );
 }

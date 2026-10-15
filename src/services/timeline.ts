@@ -1,12 +1,14 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "@/db/client";
-import { stories, storyUnits, timelines } from "@/db/schema";
+import { stories, storyUnits, timelineEdits, timelines } from "@/db/schema";
 import { StoryNotFoundError, TimelineNotFoundError } from "@/domain/errors";
 import {
   applyPatches,
+  type EditOperation,
   type EditPatch,
   type RenderedTimeline,
+  type ScopeType,
   type StoryUnitInput,
   type UnitType,
 } from "@/domain/render";
@@ -102,14 +104,113 @@ export async function getStoryUnits(
 
 /**
  * Loads the patches introduced along an ancestry path in root-to-leaf order.
- * Phase 1 has no edits yet; Phase 2 populates this from `timeline_edits`.
+ * The root has no edit, so a single-element path yields no patches.
  */
 export async function getPathPatches(
-  _db: Database,
-  _storyId: string,
-  _pathTimelineIds: string[],
+  db: Database,
+  storyId: string,
+  pathTimelineIds: string[],
 ): Promise<EditPatch[]> {
-  return [];
+  if (pathTimelineIds.length <= 1) return [];
+
+  const rows = await db
+    .select({
+      timelineId: timelineEdits.timelineId,
+      targetUnitId: timelineEdits.targetUnitId,
+      scopeType: timelineEdits.scopeType,
+      operation: timelineEdits.operation,
+      startOffset: timelineEdits.startOffset,
+      endOffset: timelineEdits.endOffset,
+      selectedText: timelineEdits.selectedText,
+      replacementText: timelineEdits.replacementText,
+    })
+    .from(timelineEdits)
+    .where(
+      and(
+        eq(timelineEdits.storyId, storyId),
+        inArray(timelineEdits.timelineId, pathTimelineIds),
+      ),
+    );
+
+  const byTimeline = new Map(rows.map((row) => [row.timelineId, row]));
+
+  // Preserve root-to-leaf order regardless of database return order.
+  const patches: EditPatch[] = [];
+  for (const timelineId of pathTimelineIds) {
+    const row = byTimeline.get(timelineId);
+    if (!row) continue;
+    patches.push({
+      timelineId: row.timelineId,
+      targetUnitId: row.targetUnitId,
+      scopeType: row.scopeType as ScopeType,
+      operation: row.operation as EditOperation,
+      startOffset: row.startOffset,
+      endOffset: row.endOffset,
+      selectedText: row.selectedText,
+      replacementText: row.replacementText,
+    });
+  }
+  return patches;
+}
+
+export interface ChildTimeline {
+  id: string;
+  label: string | null;
+  createdAt: Date;
+}
+
+export interface TimelineSummary {
+  id: string;
+  label: string | null;
+  createdAt: Date;
+}
+
+/** Summaries for a known list of timeline ids, preserving the requested order. */
+export async function getTimelineSummaries(
+  db: Database,
+  storyId: string,
+  timelineIds: string[],
+): Promise<TimelineSummary[]> {
+  if (timelineIds.length === 0) return [];
+  const rows = await db
+    .select({
+      id: timelines.id,
+      label: timelines.label,
+      createdAt: timelines.createdAt,
+    })
+    .from(timelines)
+    .where(
+      and(
+        eq(timelines.storyId, storyId),
+        inArray(timelines.id, timelineIds),
+      ),
+    );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return timelineIds
+    .map((id) => byId.get(id))
+    .filter((row): row is TimelineSummary => row !== undefined);
+}
+
+/** Direct children of a timeline, oldest first. */
+export async function getChildTimelines(
+  db: Database,
+  storyId: string,
+  parentTimelineId: string,
+): Promise<ChildTimeline[]> {
+  return db
+    .select({
+      id: timelines.id,
+      label: timelines.label,
+      createdAt: timelines.createdAt,
+    })
+    .from(timelines)
+    .where(
+      and(
+        eq(timelines.storyId, storyId),
+        eq(timelines.parentTimelineId, parentTimelineId),
+      ),
+    )
+    .orderBy(asc(timelines.createdAt), asc(timelines.id));
 }
 
 /**
