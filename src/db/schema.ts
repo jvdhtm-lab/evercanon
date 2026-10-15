@@ -1,12 +1,80 @@
+import {
+  foreignKey,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
 /**
- * Drizzle table definitions for Evercanon.
- *
- * These definitions provide typed query access and mirror the schema created by
- * the reviewed SQL migrations in `db/migrations`. The SQL migrations remain the
- * canonical schema-evolution path; keep this file aligned with them.
- *
- * Phase 0 introduces only the migration bookkeeping table (managed by the
- * migration runner). Story tables are added here in Phase 1 and later phases.
+ * Drizzle definitions for Evercanon. They mirror the schema created by the
+ * reviewed SQL migrations in `db/migrations`, which remain the canonical
+ * schema-evolution path. Keep this file aligned with those migrations.
  */
 
-export {};
+export const stories = pgTable("stories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("active"),
+  seededAt: timestamp("seeded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const storyUnits = pgTable(
+  "story_units",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+    unitType: text("unit_type").notNull(),
+    initialText: text("initial_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("story_units_id_story_id_key").on(t.id, t.storyId),
+    unique("story_units_story_position_key").on(t.storyId, t.position),
+  ],
+);
+
+export const timelines = pgTable(
+  "timelines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "restrict" }),
+    parentTimelineId: uuid("parent_timeline_id"),
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("timelines_id_story_id_key").on(t.id, t.storyId),
+    foreignKey({
+      columns: [t.parentTimelineId, t.storyId],
+      foreignColumns: [t.id, t.storyId],
+      name: "timeline_parent_same_story_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("one_root_timeline_per_story")
+      .on(t.storyId)
+      .where(sql`${t.parentTimelineId} is null`),
+    index("timelines_parent_idx").on(t.parentTimelineId),
+    index("timelines_story_created_idx").on(t.storyId, t.createdAt),
+  ],
+);

@@ -1,15 +1,10 @@
 import "server-only";
 
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-
-import * as schema from "./schema";
-
-type Sql = ReturnType<typeof postgres>;
+import { createDatabase, type Connection } from "./factory";
 
 declare global {
   // Reuse a single pool across hot reloads in development.
-  var __evercanonSql: Sql | undefined;
+  var __evercanonDb: Connection | undefined;
 }
 
 function connectionString(): string {
@@ -21,23 +16,22 @@ function connectionString(): string {
 }
 
 /**
- * Returns the shared postgres.js pool. Connections are created lazily so that
- * importing this module (for example during `next build`) does not open a
- * connection to the database.
+ * Returns the shared database connection. Created lazily so that importing this
+ * module (for example during `next build`) never opens a connection.
  */
-export function getSql(): Sql {
-  if (!global.__evercanonSql) {
-    global.__evercanonSql = postgres(connectionString(), {
-      max: 10,
-      idle_timeout: 20,
-    });
+export function getConnection(): Connection {
+  if (!global.__evercanonDb) {
+    global.__evercanonDb = createDatabase(connectionString());
   }
-  return global.__evercanonSql;
+  return global.__evercanonDb;
 }
 
-/** Drizzle query builder bound to the shared pool. */
 export function getDb() {
-  return drizzle(getSql(), { schema });
+  return getConnection().db;
+}
+
+export function getSql() {
+  return getConnection().client;
 }
 
 export type Database = ReturnType<typeof getDb>;
