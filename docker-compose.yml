@@ -1,0 +1,41 @@
+# Coordinates Evercanon's two runtime services:
+#   postgres - authoritative database
+#   app      - Next.js application, built from ./Dockerfile (authored in Phase 0)
+# Start everything:            docker compose up --build
+# Database only (host dev):    docker compose up -d postgres
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-evercanon}
+      POSTGRES_USER: ${POSTGRES_USER:-evercanon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      # Bind locally for development; do not expose PostgreSQL publicly in production.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - evercanon_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-evercanon} -d ${POSTGRES_DB:-evercanon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Reaches the database by Compose service name, not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-evercanon}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-evercanon}?schema=public
+      VISITOR_COOKIE_SECRET: ${VISITOR_COOKIE_SECRET:?Set VISITOR_COOKIE_SECRET in .env}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  evercanon_postgres_data:
