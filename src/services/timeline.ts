@@ -191,6 +191,66 @@ export async function getTimelineSummaries(
     .filter((row): row is TimelineSummary => row !== undefined);
 }
 
+export interface BranchOption {
+  timelineId: string;
+  label: string | null;
+  voteTargetId: string | null;
+  upvotes: number;
+  downvotes: number;
+  netScore: number;
+  myVote: number | null;
+}
+
+/**
+ * Direct children of a timeline with their branch-target scores and, when a
+ * visitor is known, the visitor's current vote. Scores come from the vote
+ * ledger, not from any client input.
+ */
+export async function getBranchOptions(
+  db: Database,
+  storyId: string,
+  parentTimelineId: string,
+  visitorId: string | null,
+): Promise<BranchOption[]> {
+  const result = await db.execute<{
+    timeline_id: string;
+    label: string | null;
+    vote_target_id: string | null;
+    upvotes: number;
+    downvotes: number;
+    net_score: number;
+    my_vote: number | null;
+  }>(sql`
+    SELECT
+      t.id AS timeline_id,
+      t.label,
+      vt.id AS vote_target_id,
+      COALESCE(COUNT(v.id) FILTER (WHERE v.value = 1), 0)::int AS upvotes,
+      COALESCE(COUNT(v.id) FILTER (WHERE v.value = -1), 0)::int AS downvotes,
+      COALESCE(SUM(v.value), 0)::int AS net_score,
+      MAX(mv.value)::int AS my_vote
+    FROM timelines t
+    LEFT JOIN vote_targets vt
+      ON vt.timeline_id = t.id AND vt.target_kind = 'branch'
+    LEFT JOIN votes v ON v.vote_target_id = vt.id
+    LEFT JOIN votes mv
+      ON mv.vote_target_id = vt.id AND mv.visitor_id = ${visitorId}
+    WHERE t.story_id = ${storyId} AND t.parent_timeline_id = ${parentTimelineId}
+    GROUP BY t.id, t.label, t.created_at, vt.id
+    ORDER BY t.created_at ASC, t.id ASC
+  `);
+
+  return Array.from(result).map((row) => ({
+    timelineId: row.timeline_id,
+    label: row.label,
+    voteTargetId: row.vote_target_id,
+    upvotes: row.upvotes,
+    downvotes: row.downvotes,
+    netScore: row.net_score,
+    myVote: row.my_vote === null ? null : Number(row.my_vote),
+  }));
+}
+
 /** Direct children of a timeline, oldest first. */
 export async function getChildTimelines(
   db: Database,

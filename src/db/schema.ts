@@ -51,6 +51,16 @@ export const storyUnits = pgTable(
   ],
 );
 
+export const visitors = pgTable("visitors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const timelines = pgTable(
   "timelines",
   {
@@ -59,6 +69,10 @@ export const timelines = pgTable(
       .notNull()
       .references(() => stories.id, { onDelete: "restrict" }),
     parentTimelineId: uuid("parent_timeline_id"),
+    createdByVisitorId: uuid("created_by_visitor_id").references(
+      () => visitors.id,
+      { onDelete: "set null" },
+    ),
     label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -115,5 +129,63 @@ export const timelineEdits = pgTable(
     uniqueIndex("timeline_edits_request_key_key")
       .on(t.storyId, t.requestKey)
       .where(sql`${t.requestKey} is not null`),
+  ],
+);
+
+export const voteTargets = pgTable(
+  "vote_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "restrict" }),
+    timelineId: uuid("timeline_id").notNull(),
+    targetKind: text("target_kind").notNull(),
+    targetUnitId: uuid("target_unit_id"),
+    startOffset: integer("start_offset"),
+    endOffset: integer("end_offset"),
+    targetText: text("target_text").notNull().default(""),
+    targetKey: text("target_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.timelineId, t.storyId],
+      foreignColumns: [timelines.id, timelines.storyId],
+      name: "vote_targets_timeline_story_fk",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [t.targetUnitId, t.storyId],
+      foreignColumns: [storyUnits.id, storyUnits.storyId],
+      name: "vote_targets_target_unit_story_fk",
+    }).onDelete("restrict"),
+    unique("vote_targets_timeline_key_key").on(t.timelineId, t.targetKey),
+    index("vote_targets_story_timeline_idx").on(t.storyId, t.timelineId),
+  ],
+);
+
+export const votes = pgTable(
+  "votes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    visitorId: uuid("visitor_id")
+      .notNull()
+      .references(() => visitors.id, { onDelete: "restrict" }),
+    voteTargetId: uuid("vote_target_id")
+      .notNull()
+      .references(() => voteTargets.id, { onDelete: "restrict" }),
+    value: integer("value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("votes_visitor_target_key").on(t.visitorId, t.voteTargetId),
+    index("votes_target_idx").on(t.voteTargetId),
   ],
 );

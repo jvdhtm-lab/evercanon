@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { StoryLayout } from "@/components/StoryLayout";
 import { TimelineView } from "@/components/TimelineView";
 import { getDb } from "@/db/client";
+import { getCurrentVisitorId } from "@/lib/currentVisitor";
 import {
-  getChildTimelines,
+  getBranchOptions,
   getRootTimelineId,
   getStoryBySlug,
   getTimelineSummaries,
@@ -30,8 +31,9 @@ export default async function StoryPage({
   if (!rootTimelineId) notFound();
 
   const rendered = await renderTimeline(db, story.id, rootTimelineId);
+  const visitorId = await getCurrentVisitorId();
   const [branches, history] = await Promise.all([
-    getChildTimelines(db, story.id, rootTimelineId),
+    getBranchOptions(db, story.id, rootTimelineId, visitorId),
     getTimelineSummaries(db, story.id, rendered.pathTimelineIds),
   ]);
 

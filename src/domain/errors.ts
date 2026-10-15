@@ -29,3 +29,15 @@ export class ValidationError extends DomainError {
     super(code, message);
   }
 }
+
+export class VoteTargetNotFoundError extends DomainError {
+  constructor(voteTargetId: string) {
+    super("vote_target_not_found", `Vote target not found: ${voteTargetId}`);
+  }
+}
+
+export class RateLimitError extends DomainError {
+  constructor() {
+    super("rate_limited", "Too many requests. Please slow down.");
+  }
+}

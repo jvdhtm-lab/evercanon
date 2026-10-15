@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import type { Database } from "@/db/client";
-import { timelineEdits, timelines } from "@/db/schema";
+import { timelineEdits, timelines, voteTargets } from "@/db/schema";
 import { DomainError, ValidationError } from "@/domain/errors";
 import { hashText } from "@/domain/hash";
 import { renderTimeline } from "@/services/timeline";
@@ -31,6 +31,7 @@ export interface ProposeUnitReplacementInput {
   replacementText: string;
   requestKey?: string | null;
   label?: string | null;
+  creatorVisitorId?: string | null;
 }
 
 export interface ProposalResult {
@@ -103,6 +104,7 @@ export async function proposeUnitReplacement(
           storyId: input.storyId,
           parentTimelineId: input.parentTimelineId,
           label: input.label ?? null,
+          createdByVisitorId: input.creatorVisitorId ?? null,
         })
         .returning({ id: timelines.id });
 
@@ -118,6 +120,15 @@ export async function proposeUnitReplacement(
         replacementText,
         parentTextHash,
         requestKey,
+      });
+
+      // A branch target represents the change introduced by this child timeline.
+      await tx.insert(voteTargets).values({
+        storyId: input.storyId,
+        timelineId: timeline.id,
+        targetKind: "branch",
+        targetText: replacementText,
+        targetKey: "branch",
       });
 
       return { timelineId: timeline.id, created: true };

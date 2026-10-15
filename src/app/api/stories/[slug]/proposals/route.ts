@@ -4,6 +4,11 @@ import { z } from "zod";
 import { getDb } from "@/db/client";
 import { TimelineNotFoundError, ValidationError } from "@/domain/errors";
 import {
+  VISITOR_COOKIE_NAME,
+  verifyVisitorCookie,
+} from "@/domain/visitor";
+import { requireEnv } from "@/lib/config";
+import {
   MAX_EDIT_TEXT_LENGTH,
   proposeUnitReplacement,
   StaleEditError,
@@ -54,10 +59,16 @@ export async function POST(
     return NextResponse.json({ error: "story_not_found" }, { status: 404 });
   }
 
+  const creatorVisitorId = verifyVisitorCookie(
+    requireEnv("VISITOR_COOKIE_SECRET"),
+    request.cookies.get(VISITOR_COOKIE_NAME)?.value,
+  );
+
   try {
     const result = await proposeUnitReplacement(db, {
       storyId: story.id,
       ...parsed.data,
+      creatorVisitorId,
     });
     return NextResponse.json(
       {

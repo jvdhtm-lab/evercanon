@@ -1,9 +1,10 @@
 import Link from "next/link";
 
+import { BranchVote } from "@/components/BranchVote";
 import { ProposeUnitForm } from "@/components/ProposeUnitForm";
 import { StoryText } from "@/components/StoryText";
 import type { RenderedTimeline } from "@/domain/render";
-import type { ChildTimeline, TimelineSummary } from "@/services/timeline";
+import type { BranchOption, TimelineSummary } from "@/services/timeline";
 
 export function TimelineView({
   slug,
@@ -13,7 +14,7 @@ export function TimelineView({
 }: {
   slug: string;
   rendered: RenderedTimeline;
-  branches: ChildTimeline[];
+  branches: BranchOption[];
   history: TimelineSummary[];
 }) {
   return (
@@ -52,15 +53,26 @@ export function TimelineView({
             No branches yet. This version is a leaf for now.
           </p>
         ) : (
-          <ul className="space-y-1 text-sm">
+          <ul className="space-y-2 text-sm">
             {branches.map((branch, index) => (
-              <li key={branch.id}>
+              <li key={branch.timelineId} className="flex items-center gap-3">
                 <Link
                   className="underline hover:text-neutral-600"
-                  href={`/stories/${slug}/t/${branch.id}`}
+                  href={`/stories/${slug}/t/${branch.timelineId}`}
                 >
                   {branch.label ?? `Branch ${index + 1}`}
                 </Link>
+                {branch.voteTargetId ? (
+                  <BranchVote
+                    voteTargetId={branch.voteTargetId}
+                    initial={{
+                      upvotes: branch.upvotes,
+                      downvotes: branch.downvotes,
+                      netScore: branch.netScore,
+                      myVote: branch.myVote,
+                    }}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
