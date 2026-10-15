@@ -1,5 +1,4 @@
-# Evercanon — agent-ready project
-
+# Evercanon 
 **Tagline:** *Nothing is final. Everything leaves a trace.*
 
 **Product principle:** **Popularity determines visibility, never existence.**
