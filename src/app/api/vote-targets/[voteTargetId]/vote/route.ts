@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -9,13 +7,8 @@ import {
   ValidationError,
   VoteTargetNotFoundError,
 } from "@/domain/errors";
-import {
-  signVisitorId,
-  verifyVisitorCookie,
-  VISITOR_COOKIE_NAME,
-} from "@/domain/visitor";
-import { requireEnv } from "@/lib/config";
 import { isSameOrigin } from "@/lib/requestGuard";
+import { applyVisitorCookie, resolveVisitor } from "@/lib/visitorCookies";
 import { castVote } from "@/services/votes";
 
 export const dynamic = "force-dynamic";
@@ -52,39 +45,17 @@ export async function POST(
     return NextResponse.json({ error: "invalid_input" }, { status: 422 });
   }
 
-  const secret = requireEnv("VISITOR_COOKIE_SECRET");
-  let visitorId = verifyVisitorCookie(
-    secret,
-    request.cookies.get(VISITOR_COOKIE_NAME)?.value,
-  );
-  const isNewVisitor = !visitorId;
-  if (!visitorId) visitorId = randomUUID();
-
+  const visitor = resolveVisitor(request);
   const db = getDb();
 
   try {
     const result = await castVote(db, {
       voteTargetId,
-      visitorId,
+      visitorId: visitor.visitorId,
       value: parsed.data.value,
     });
-
     const response = NextResponse.json(result);
-    if (isNewVisitor) {
-      const forwardedProto = request.headers.get("x-forwarded-proto");
-      const secure = forwardedProto
-        ? forwardedProto.split(",")[0].trim() === "https"
-        : new URL(request.url).protocol === "https:";
-      response.cookies.set({
-        name: VISITOR_COOKIE_NAME,
-        value: signVisitorId(secret, visitorId),
-        httpOnly: true,
-        sameSite: "lax",
-        secure,
-        path: "/",
-        maxAge: 60 * 60 * 24 * 365,
-      });
-    }
+    applyVisitorCookie(response, request, visitor);
     return response;
   } catch (error) {
     if (error instanceof VoteTargetNotFoundError) {

@@ -8,6 +8,7 @@ import {
   VoteTargetNotFoundError,
 } from "@/domain/errors";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { recomputeVoteAttributions } from "@/services/attribution";
 
 export type VoteValue = 1 | 0 | -1;
 
@@ -124,6 +125,15 @@ export async function castVote(
           target: [votes.visitorId, votes.voteTargetId],
           set: { value, updatedAt: new Date() },
         });
+
+      const [row] = await tx
+        .select({ id: votes.id })
+        .from(votes)
+        .where(
+          and(eq(votes.visitorId, visitorId), eq(votes.voteTargetId, voteTargetId)),
+        )
+        .limit(1);
+      if (row) await recomputeVoteAttributions(tx, row.id);
     }
   });
 

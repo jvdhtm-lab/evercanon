@@ -3,6 +3,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -187,5 +188,26 @@ export const votes = pgTable(
   (t) => [
     unique("votes_visitor_target_key").on(t.visitorId, t.voteTargetId),
     index("votes_target_idx").on(t.voteTargetId),
+  ],
+);
+
+export const voteAttributions = pgTable(
+  "vote_attributions",
+  {
+    voteId: uuid("vote_id")
+      .notNull()
+      .references(() => votes.id, { onDelete: "cascade" }),
+    supportedTargetId: uuid("supported_target_id")
+      .notNull()
+      .references(() => voteTargets.id, { onDelete: "restrict" }),
+    attributionKind: text("attribution_kind").notNull(),
+    weight: integer("weight").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.voteId, t.supportedTargetId, t.attributionKind] }),
+    index("vote_attributions_target_idx").on(t.supportedTargetId),
   ],
 );

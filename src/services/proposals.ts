@@ -4,6 +4,7 @@ import type { Database } from "@/db/client";
 import { timelineEdits, timelines, voteTargets } from "@/db/schema";
 import { DomainError, ValidationError } from "@/domain/errors";
 import { hashText } from "@/domain/hash";
+import { validateSpanSelection } from "@/domain/spans";
 import { renderTimeline } from "@/services/timeline";
 
 export class StaleEditError extends DomainError {
@@ -21,9 +22,15 @@ export class TargetUnitNotFoundError extends DomainError {
   }
 }
 
+export class InvalidSpanError extends DomainError {
+  constructor(reason: string) {
+    super("invalid_span", `The selected span is invalid (${reason})`);
+  }
+}
+
 export const MAX_EDIT_TEXT_LENGTH = 5000;
 
-export interface ProposeUnitReplacementInput {
+interface BaseProposalInput {
   storyId: string;
   parentTimelineId: string;
   targetUnitId: string;
@@ -32,6 +39,13 @@ export interface ProposeUnitReplacementInput {
   requestKey?: string | null;
   label?: string | null;
   creatorVisitorId?: string | null;
+}
+
+export type ProposeUnitReplacementInput = BaseProposalInput;
+
+export interface ProposeSpanReplacementInput extends BaseProposalInput {
+  startOffset: number;
+  endOffset: number;
 }
 
 export interface ProposalResult {
@@ -48,19 +62,7 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-/**
- * Creates a child timeline with a whole-unit replacement patch, atomically.
- *
- * The parent is re-rendered server-side and the client's `selectedText` must
- * match it exactly; otherwise the proposal is rejected as stale. Timeline and
- * edit are inserted in one transaction, and a supplied `requestKey` makes
- * retries idempotent.
- */
-export async function proposeUnitReplacement(
-  db: Database,
-  input: ProposeUnitReplacementInput,
-): Promise<ProposalResult> {
-  const replacementText = input.replacementText;
+function validateReplacement(replacementText: string): void {
   if (replacementText.trim().length === 0) {
     throw new ValidationError("empty_replacement", "Replacement text is empty");
   }
@@ -70,15 +72,39 @@ export async function proposeUnitReplacement(
       `Replacement text exceeds ${MAX_EDIT_TEXT_LENGTH} characters`,
     );
   }
+}
 
+async function loadParentUnitText(
+  db: Database,
+  storyId: string,
+  parentTimelineId: string,
+  targetUnitId: string,
+): Promise<string> {
   // Throws TimelineNotFoundError for a nonexistent or cross-story parent.
-  const parent = await renderTimeline(db, input.storyId, input.parentTimelineId);
-  const unit = parent.units.find((u) => u.unitId === input.targetUnitId);
-  if (!unit) throw new TargetUnitNotFoundError(input.targetUnitId);
-  if (unit.text !== input.selectedText) throw new StaleEditError();
+  const parent = await renderTimeline(db, storyId, parentTimelineId);
+  const unit = parent.units.find((u) => u.unitId === targetUnitId);
+  if (!unit) throw new TargetUnitNotFoundError(targetUnitId);
+  return unit.text;
+}
 
-  const parentTextHash = hashText(unit.text);
-  const requestKey = input.requestKey ?? null;
+async function createChildEdit(
+  db: Database,
+  input: {
+    storyId: string;
+    parentTimelineId: string;
+    targetUnitId: string;
+    scopeType: "unit" | "span";
+    startOffset: number | null;
+    endOffset: number | null;
+    selectedText: string;
+    replacementText: string;
+    parentTextHash: string;
+    requestKey: string | null;
+    label: string | null;
+    creatorVisitorId: string | null;
+  },
+): Promise<ProposalResult> {
+  const { storyId, requestKey } = input;
 
   try {
     return await db.transaction(async (tx) => {
@@ -88,7 +114,7 @@ export async function proposeUnitReplacement(
           .from(timelineEdits)
           .where(
             and(
-              eq(timelineEdits.storyId, input.storyId),
+              eq(timelineEdits.storyId, storyId),
               eq(timelineEdits.requestKey, requestKey),
             ),
           )
@@ -101,55 +127,123 @@ export async function proposeUnitReplacement(
       const [timeline] = await tx
         .insert(timelines)
         .values({
-          storyId: input.storyId,
+          storyId,
           parentTimelineId: input.parentTimelineId,
-          label: input.label ?? null,
-          createdByVisitorId: input.creatorVisitorId ?? null,
+          label: input.label,
+          createdByVisitorId: input.creatorVisitorId,
         })
         .returning({ id: timelines.id });
 
       await tx.insert(timelineEdits).values({
-        storyId: input.storyId,
+        storyId,
         timelineId: timeline.id,
         targetUnitId: input.targetUnitId,
-        scopeType: "unit",
+        scopeType: input.scopeType,
         operation: "replace",
-        startOffset: null,
-        endOffset: null,
+        startOffset: input.startOffset,
+        endOffset: input.endOffset,
         selectedText: input.selectedText,
-        replacementText,
-        parentTextHash,
+        replacementText: input.replacementText,
+        parentTextHash: input.parentTextHash,
         requestKey,
       });
 
-      // A branch target represents the change introduced by this child timeline.
+      // The branch target represents the change introduced by this timeline.
       await tx.insert(voteTargets).values({
-        storyId: input.storyId,
+        storyId,
         timelineId: timeline.id,
         targetKind: "branch",
-        targetText: replacementText,
+        targetText: input.replacementText,
         targetKey: "branch",
       });
 
       return { timelineId: timeline.id, created: true };
     });
   } catch (error) {
-    // A concurrent retry with the same request key won the race.
     if (requestKey && isUniqueViolation(error)) {
       const rows = await db
         .select({ timelineId: timelineEdits.timelineId })
         .from(timelineEdits)
         .where(
           and(
-            eq(timelineEdits.storyId, input.storyId),
+            eq(timelineEdits.storyId, storyId),
             eq(timelineEdits.requestKey, requestKey),
           ),
         )
         .limit(1);
-      if (rows[0]) {
-        return { timelineId: rows[0].timelineId, created: false };
-      }
+      if (rows[0]) return { timelineId: rows[0].timelineId, created: false };
     }
     throw error;
   }
+}
+
+/** Replaces an entire unit (sentence) with new text. */
+export async function proposeUnitReplacement(
+  db: Database,
+  input: ProposeUnitReplacementInput,
+): Promise<ProposalResult> {
+  validateReplacement(input.replacementText);
+  const parentText = await loadParentUnitText(
+    db,
+    input.storyId,
+    input.parentTimelineId,
+    input.targetUnitId,
+  );
+  if (parentText !== input.selectedText) throw new StaleEditError();
+
+  return createChildEdit(db, {
+    storyId: input.storyId,
+    parentTimelineId: input.parentTimelineId,
+    targetUnitId: input.targetUnitId,
+    scopeType: "unit",
+    startOffset: null,
+    endOffset: null,
+    selectedText: input.selectedText,
+    replacementText: input.replacementText,
+    parentTextHash: hashText(parentText),
+    requestKey: input.requestKey ?? null,
+    label: input.label ?? null,
+    creatorVisitorId: input.creatorVisitorId ?? null,
+  });
+}
+
+/** Replaces a word/phrase span within a unit, using UTF-16 offsets. */
+export async function proposeSpanReplacement(
+  db: Database,
+  input: ProposeSpanReplacementInput,
+): Promise<ProposalResult> {
+  validateReplacement(input.replacementText);
+  const parentText = await loadParentUnitText(
+    db,
+    input.storyId,
+    input.parentTimelineId,
+    input.targetUnitId,
+  );
+
+  const validation = validateSpanSelection(
+    parentText,
+    input.startOffset,
+    input.endOffset,
+    input.selectedText,
+  );
+  if (!validation.valid) {
+    // A mismatch on the selected text is a stale form, not a malformed span.
+    if (validation.reason === "selected_text_mismatch") throw new StaleEditError();
+    throw new InvalidSpanError(validation.reason ?? "unknown");
+  }
+
+  return createChildEdit(db, {
+    storyId: input.storyId,
+    parentTimelineId: input.parentTimelineId,
+    targetUnitId: input.targetUnitId,
+    scopeType: "span",
+    startOffset: input.startOffset,
+    endOffset: input.endOffset,
+    selectedText: input.selectedText,
+    replacementText: input.replacementText,
+    parentTextHash: hashText(parentText),
+    requestKey: input.requestKey ?? null,
+    label: input.label ?? null,
+    creatorVisitorId: input.creatorVisitorId ?? null,
+  });
 }

@@ -3,13 +3,12 @@ import { z } from "zod";
 
 import { getDb } from "@/db/client";
 import { TimelineNotFoundError, ValidationError } from "@/domain/errors";
-import {
-  VISITOR_COOKIE_NAME,
-  verifyVisitorCookie,
-} from "@/domain/visitor";
+import { VISITOR_COOKIE_NAME, verifyVisitorCookie } from "@/domain/visitor";
 import { requireEnv } from "@/lib/config";
 import {
+  InvalidSpanError,
   MAX_EDIT_TEXT_LENGTH,
+  proposeSpanReplacement,
   proposeUnitReplacement,
   StaleEditError,
   TargetUnitNotFoundError,
@@ -18,13 +17,23 @@ import { getStoryBySlug } from "@/services/timeline";
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
+const base = {
   parentTimelineId: z.uuid(),
   targetUnitId: z.uuid(),
   selectedText: z.string().min(1).max(MAX_EDIT_TEXT_LENGTH),
   replacementText: z.string().min(1).max(MAX_EDIT_TEXT_LENGTH),
   requestKey: z.string().min(1).max(200).optional(),
+};
+
+const unitSchema = z.object({ ...base, scopeType: z.literal("unit").optional() });
+const spanSchema = z.object({
+  ...base,
+  scopeType: z.literal("span"),
+  startOffset: z.number().int().min(0),
+  endOffset: z.number().int().min(0),
 });
+
+const bodySchema = z.union([spanSchema, unitSchema]);
 
 export async function POST(
   request: NextRequest,
@@ -65,11 +74,30 @@ export async function POST(
   );
 
   try {
-    const result = await proposeUnitReplacement(db, {
-      storyId: story.id,
-      ...parsed.data,
-      creatorVisitorId,
-    });
+    const data = parsed.data;
+    const result =
+      data.scopeType === "span"
+        ? await proposeSpanReplacement(db, {
+            storyId: story.id,
+            parentTimelineId: data.parentTimelineId,
+            targetUnitId: data.targetUnitId,
+            selectedText: data.selectedText,
+            replacementText: data.replacementText,
+            requestKey: data.requestKey,
+            startOffset: data.startOffset,
+            endOffset: data.endOffset,
+            creatorVisitorId,
+          })
+        : await proposeUnitReplacement(db, {
+            storyId: story.id,
+            parentTimelineId: data.parentTimelineId,
+            targetUnitId: data.targetUnitId,
+            selectedText: data.selectedText,
+            replacementText: data.replacementText,
+            requestKey: data.requestKey,
+            creatorVisitorId,
+          });
+
     return NextResponse.json(
       {
         timelineId: result.timelineId,
@@ -80,10 +108,7 @@ export async function POST(
     );
   } catch (error) {
     if (error instanceof TimelineNotFoundError) {
-      return NextResponse.json(
-        { error: "parent_timeline_not_found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "parent_timeline_not_found" }, { status: 404 });
     }
     if (error instanceof StaleEditError) {
       return NextResponse.json(
@@ -95,6 +120,12 @@ export async function POST(
       return NextResponse.json(
         { error: "target_unit_not_found", message: error.message },
         { status: 400 },
+      );
+    }
+    if (error instanceof InvalidSpanError) {
+      return NextResponse.json(
+        { error: "invalid_span", message: error.message },
+        { status: 422 },
       );
     }
     if (error instanceof ValidationError) {
