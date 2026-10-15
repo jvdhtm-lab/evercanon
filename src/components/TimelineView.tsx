@@ -1,6 +1,5 @@
-import Link from "next/link";
-
-import { BranchVote } from "@/components/BranchVote";
+import { Branches } from "@/components/Branches";
+import { History } from "@/components/History";
 import { ProposeUnitForm } from "@/components/ProposeUnitForm";
 import { StoryText } from "@/components/StoryText";
 import type { RenderedTimeline } from "@/domain/render";
@@ -41,64 +40,8 @@ export function TimelineView({
         </div>
       </section>
 
-      <section aria-labelledby="branches-heading" className="space-y-2">
-        <h2
-          id="branches-heading"
-          className="text-xs font-semibold uppercase tracking-wide text-neutral-500"
-        >
-          Branches from this timeline
-        </h2>
-        {branches.length === 0 ? (
-          <p className="text-sm text-neutral-400">
-            No branches yet. This version is a leaf for now.
-          </p>
-        ) : (
-          <ul className="space-y-2 text-sm">
-            {branches.map((branch, index) => (
-              <li key={branch.timelineId} className="flex items-center gap-3">
-                <Link
-                  className="underline hover:text-neutral-600"
-                  href={`/stories/${slug}/t/${branch.timelineId}`}
-                >
-                  {branch.label ?? `Branch ${index + 1}`}
-                </Link>
-                {branch.voteTargetId ? (
-                  <BranchVote
-                    voteTargetId={branch.voteTargetId}
-                    initial={{
-                      upvotes: branch.upvotes,
-                      downvotes: branch.downvotes,
-                      netScore: branch.netScore,
-                      myVote: branch.myVote,
-                    }}
-                  />
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section aria-labelledby="history-heading" className="space-y-2">
-        <h2
-          id="history-heading"
-          className="text-xs font-semibold uppercase tracking-wide text-neutral-500"
-        >
-          History
-        </h2>
-        <ol className="space-y-1 text-sm text-neutral-500">
-          {history.map((entry, index) => (
-            <li key={entry.id}>
-              <Link
-                className="underline hover:text-neutral-600"
-                href={`/stories/${slug}/t/${entry.id}`}
-              >
-                {index === 0 ? "Seed" : (entry.label ?? `Timeline ${index}`)}
-              </Link>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <Branches slug={slug} branches={branches} />
+      <History slug={slug} history={history} />
     </div>
   );
 }

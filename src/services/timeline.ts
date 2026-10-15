@@ -194,6 +194,9 @@ export async function getTimelineSummaries(
 export interface BranchOption {
   timelineId: string;
   label: string | null;
+  createdAt: Date;
+  targetUnitId: string | null;
+  changeText: string | null;
   voteTargetId: string | null;
   upvotes: number;
   downvotes: number;
@@ -215,6 +218,9 @@ export async function getBranchOptions(
   const result = await db.execute<{
     timeline_id: string;
     label: string | null;
+    created_at: Date;
+    target_unit_id: string | null;
+    replacement_text: string | null;
     vote_target_id: string | null;
     upvotes: number;
     downvotes: number;
@@ -224,25 +230,33 @@ export async function getBranchOptions(
     SELECT
       t.id AS timeline_id,
       t.label,
+      t.created_at,
+      e.target_unit_id,
+      e.replacement_text,
       vt.id AS vote_target_id,
       COALESCE(COUNT(v.id) FILTER (WHERE v.value = 1), 0)::int AS upvotes,
       COALESCE(COUNT(v.id) FILTER (WHERE v.value = -1), 0)::int AS downvotes,
       COALESCE(SUM(v.value), 0)::int AS net_score,
       MAX(mv.value)::int AS my_vote
     FROM timelines t
+    LEFT JOIN timeline_edits e ON e.timeline_id = t.id
     LEFT JOIN vote_targets vt
       ON vt.timeline_id = t.id AND vt.target_kind = 'branch'
     LEFT JOIN votes v ON v.vote_target_id = vt.id
     LEFT JOIN votes mv
       ON mv.vote_target_id = vt.id AND mv.visitor_id = ${visitorId}
     WHERE t.story_id = ${storyId} AND t.parent_timeline_id = ${parentTimelineId}
-    GROUP BY t.id, t.label, t.created_at, vt.id
+    GROUP BY t.id, t.label, t.created_at, e.target_unit_id, e.replacement_text, vt.id
     ORDER BY t.created_at ASC, t.id ASC
   `);
 
   return Array.from(result).map((row) => ({
     timelineId: row.timeline_id,
     label: row.label,
+    // Raw SQL returns timestamptz as a string; normalise for date arithmetic.
+    createdAt: new Date(row.created_at),
+    targetUnitId: row.target_unit_id,
+    changeText: row.replacement_text,
     voteTargetId: row.vote_target_id,
     upvotes: row.upvotes,
     downvotes: row.downvotes,

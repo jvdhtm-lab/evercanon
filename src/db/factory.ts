@@ -9,7 +9,13 @@ import * as schema from "./schema";
  * own connections without pulling in Next.js request context.
  */
 export function createDatabase(url: string) {
-  const client = postgres(url, { max: 10, idle_timeout: 20 });
+  const client = postgres(url, {
+    max: 10,
+    idle_timeout: 20,
+    // Avoid server-side prepared statements so the pool survives schema
+    // migrations and connection poolers without stale-plan errors.
+    prepare: false,
+  });
   const db = drizzle(client, { schema });
   return { db, client };
 }
